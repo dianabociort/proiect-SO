@@ -7,6 +7,8 @@
 #include <time.h>      
 #include <errno.h>
 #include <ctype.h>
+#include <signal.h>
+#include <dirent.h>
 
 #define HUNTS_DIR "hunts"
 #define TREASURES_FILE "treasures.dat"
@@ -217,6 +219,7 @@ void add_treasure(const char *hunt_id)
   create_symlink_for_log(hunt_id);
 
   printf("Successfully added treasure!\n");
+ 
 }
 
 void print_treasure(Treasure treasure) //afisez toate treasureurile dintr-un hunt 
@@ -255,15 +258,56 @@ void list_treasures(const char* hunt_id) //listare treasures dintr-un anumit hun
       print_treasure(treasure);
     }
   close_file(fd);
+
   
+}
+
+//adaugare functionalitate pentru treasure_hub
+
+int count_treasures(const char *hunt_id) //numara treasure-urile dintr-un hunt
+{ 
+  int count=0;
+  
+  int fd=open_treasure_file_for_read(hunt_id);
+  
+  Treasure treasure;
+  while(read(fd,&treasure,sizeof(Treasure))==sizeof(Treasure))
+    {
+      count++;
+    }
+  close_file(fd);
+  return count;
+}
+
+void list_hunts()
+{
+  DIR *dir;
+  struct dirent *entry;
+
+  dir=opendir(HUNTS_DIR);
+  if(dir==NULL)
+    {
+      perror("Couldn't open hunts directory");
+      exit(-1);
+    }
+
+  printf("Available hunts:\n");
+  while((entry=readdir(dir))!=NULL)
+    {
+      if(strcmp(entry->d_name,".")==0 || strcmp(entry->d_name, "..")==0)
+      continue;
+      if(entry->d_type==DT_DIR)
+	{
+	  printf(" - %s (%d treasures)\n",entry->d_name,count_treasures(entry->d_name));
+	}
+    }
+  closedir(dir);
 }
 
 void view_treasure(const char *hunt_id, int treasure_id)
 {
   
   int fd=open_treasure_file_for_read(hunt_id);
-  char file_path[MAX_PATH_LEN];
-  get_treasure_filepath(hunt_id,file_path);
 
   Treasure treasure;
   int found=0;
@@ -283,6 +327,7 @@ void view_treasure(const char *hunt_id, int treasure_id)
     }
 
   close_file(fd);
+  
 }
 
 void remove_hunt(const char *hunt_id)
@@ -322,6 +367,7 @@ void remove_hunt(const char *hunt_id)
 	perror("Error deleting hunt directory");
 	exit(-1);
       }
+   
 }
 
 void log_treasure_removal(const char *hunt_id, int treasure_id)
@@ -427,6 +473,10 @@ int main(int argc,char *argv[])
     {
       int id=atoi(argv[3]);
       view_treasure(argv[2],id);
+    }
+  else if(argc==2 && strcmp(argv[1], "--list_hunts")==0)
+    {
+      list_hunts();
     }
   else
     printf("The option you have entered does not exist\n");
