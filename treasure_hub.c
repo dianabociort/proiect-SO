@@ -1,3 +1,4 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,7 +96,7 @@ void get_content_from_file(char *file, char *content) //in content vom pune cont
 }
 
 
-void signal1_handler(int signum) //monitor handler
+void monitor_handler(int signum) //
 {
   if (signum == SIGUSR1)
     {
@@ -123,7 +124,7 @@ void signal1_handler(int signum) //monitor handler
 	  perror("Fork error\n");
 	  return;
 	}
-      else if(exec_pid==0)
+      else if(exec_pid==0) //proces copil
 	{
 	  if(strcmp(commandd,"--list_hunts")==0 && strlen(huntID)==0 && strlen(treasureID)==0) 
 	    {
@@ -160,16 +161,17 @@ void signal1_handler(int signum) //monitor handler
 	}
 
       
-      pid_t p_pid=getppid();
+      pid_t p_pid=getppid(); //returneaza pid-ul parintelui procesului curent
       if(kill(p_pid,SIGUSR2)<0) //trimite semnal catre parinte
 	{
-	  perror("[ERROR] SIGUSRS2 not sent to parent\n");
+	  perror("SIGUSRS2 not sent to parent\n");
 	  exit(-1);
 	    
 	}
     }
   else if(signum==SIGTERM)
     {
+      sleep(5);
       terminate=1;
     }  
 }
@@ -178,7 +180,7 @@ void signal1_handler(int signum) //monitor handler
 void list_hunts(pid_t pid)
 {
   write_command(COMMAND_FILE_PATH,"--list_hunts");
-  if(kill(pid,SIGUSR1)<0) 
+  if(kill(pid,SIGUSR1)<0) //trimite semnalul SIGUSR1 la monitor
     {
       perror("Send SIGUSR1 to monitor error\n");
       exit(-1);
@@ -234,12 +236,12 @@ void view_treasure(pid_t pid)
     }
 }
 
-int monitor_loop()
+int monitor() //aici asteptam semnal dupa ce am pornit monitorul
 {
   //setam handler-ul
 
   struct sigaction sa1;
-  sa1.sa_handler=signal1_handler; //cand vine un semnal se apeleaza signal1_handler
+  sa1.sa_handler=monitor_handler; //cand vine un semnal se apeleaza monitor_handler
   sigemptyset(&sa1.sa_mask);
   sa1.sa_flags=0;
 
@@ -249,9 +251,9 @@ int monitor_loop()
       exit(-1);
     }
 
-  while(1) //asteapta semnale
+  while(1)
     {
-      if(!terminate) //la SIGTERM handlerul seteaza terminate=1
+      if(!terminate) //la SIGTERM handlerul va seta terminate=1 si se va termina monitorul
 	{
 	  sleep(1);
 	}
@@ -264,27 +266,25 @@ int monitor_loop()
   
 }
 
-void monitor_exit_handler(int signum) 
+void endcommand_handler(int signum) 
 {
   if(signum==SIGUSR2)
     {
       monitor_running=0;
-      
     }
 }
 
-void wait_for_monitor() //asteapta monitorul inainte de urmatorul loop al meniuli
+void block_while_running() //blocam totul pana monitorul termina comanda, inainte de urmatorul loop al meniului
 {
   //setam handler-ul
-  
   struct sigaction sa2;
-  sa2.sa_handler=monitor_exit_handler;
-  sigemptyset(&sa2.sa_mask);
+  sa2.sa_handler=endcommand_handler;
+  sigemptyset(&sa2.sa_mask); //niciun semnal nu va fi blocat in timp ce se executa handlerul
   sa2.sa_flags=0;
 
   if(sigaction(SIGUSR2, &sa2,NULL)==-1) //atasam handler-ul la semnalul sigusr2
     {
-      perror("Sigaction parent error\n");
+      perror("Sigaction error for SIGUSR2");
       exit(-1);
     }
 
@@ -300,29 +300,29 @@ void start_monitor()
   if (monitor_terminating)
     {
       printf("Monitor is terminating, please wait\n");
-      exit(0);
     }
 
-  if (pid > 0)
+  else if (pid > 0)
     {
-      printf("Monitor is already running (PID %d)\n", pid);
-      exit(0);
+      printf("Monitor is already running\n");
     }
-
-  pid = fork();
-  if (pid < 0)
+  else //daca nu exista deja proces monitor
     {
-      perror("Fork error\n");
-      exit(-1);
-    }
+      printf("Monitor started successfully\n");
 
-  if (pid == 0)
-    {
-      monitor_loop();
-      exit(0);
-    }
+      pid = fork(); //cream proces copil
+      if (pid < 0)
+	{
+	  perror("Fork error");
+	  exit(-1);
+	}
 
-  //printf("Monitor started in process %d\n", pid);
+      if (pid == 0) //procesul parinte ramane in meniu, copilul merge in monitor_loop()
+	{
+	  monitor();
+	  exit(0);
+	}
+    }
 
 }
 
@@ -332,26 +332,17 @@ void stop_monitor()
     {
       printf("Monitor is terminating, please wait\n");
     }
-  else if(pid>0) //daca e in parinte
+  else if(pid>0) //daca exista proces copil activ
     {
-      printf("Monitor terminating in progress...\n");
-      //sleep(5);
-      kill(pid,SIGTERM);
+      printf("Monitor terminating in progress...\n"); //se incepe procesul de oprire a monitorului
+      kill(pid,SIGTERM); //trimit semnalul de terminare spre procesul monitor (monitor_loop)
       monitor_terminating=1;
-
-      int status;
-      if(waitpid(pid,&status,0)==-1)
-	printf("Waitpid error in stop_monitor\n");
-      else
-	printf("Monitor has terminated\n");
-      monitor_terminating=0;
-      pid=-1;
     }
   else printf("Monitor is not open\n");
 }
 
 
-void exit_loop()
+void exit_menu()
 {
   if (monitor_terminating)
     {
@@ -359,9 +350,9 @@ void exit_loop()
     }
   else if (pid > 0) //  exista un proces copil activ
     {
-      printf("[ERROR] Monitor is still running. Please stop it first using 'stop_monitor'\n");
+      printf("Monitor is still running. Please stop it first using 'stop_monitor'\n");
     }
-  else if (pid <= 0) // procesul copil nu mai exista
+  else if (pid <= 0) // nu exista proces copil activ
     {
       printf("Exited successfully\n");
       exit(0); 
@@ -371,37 +362,33 @@ void exit_loop()
 
 int main()
 {
-  //printf("\nCommand options: \n start_monitor\n list_hunts\n list_treasures\n view_treasure\n stop_monitor\n exit\n");
-  char command[100]={'\0'};
 
+  char command[100]={'\0'};
 
   while(1)
     {
       printf("\nCommand options: \n start_monitor\n list_hunts\n list_treasures\n view_treasure\n stop_monitor\n exit\n");
-      int monitor_status=0;
-      int waitpid_return=-1;
-
       printf("Type option:\n");
       printf(">> ");
 
       fgets(command,sizeof(command),stdin);
       command[strcspn(command, "\n")] = 0;
 
-      if(pid>0)
-	{
-	  waitpid_return=waitpid(pid,&monitor_status,WNOHANG); 
-	  if(waitpid_return==-1)
+      if(pid > 0) //verificare daca monitorul a murit
+	{ 
+	  int status = 0;
+	  int result = waitpid(pid, &status, WNOHANG);
+	  if(result == -1)
 	    {
-	      perror("Waitpid error\n");
+	      perror("Waitpid error");
 	      exit(-1);
 	    }
-	  else if(waitpid_return !=0)
+	  else if(result > 0) //daca a murit monitorul
 	    {
-	      monitor_terminating=0; 
-	      pid=-1;
+	      monitor_terminating = 0;
+	      pid = -1;
 	    }
 	}
-
 
       if(strcmp(command,"start_monitor")==0)
 	  start_monitor();
@@ -410,13 +397,13 @@ int main()
 	{
 	  if(monitor_terminating)
 	    {
-	      printf("[ERROR] Monitor is terminating, please wait\n");
+	      printf("Monitor is terminating, please wait\n");
 	    }
 	  else if(pid>0)
 	    {
 	      monitor_running=1;
 	      list_hunts(pid);
-	      wait_for_monitor(); 
+	      block_while_running(); //asteapta finalul comenzii actuale pana sa putem introduce urmatoarea comanda
 	    }
 	  else printf("Monitor is not open\n");
 	}
@@ -425,13 +412,13 @@ int main()
 	{
 	  if(monitor_terminating)
 	    {
-	      printf("[ERROR] Monitor is terminating, please wait\n");
+	      printf("Monitor is terminating, please wait\n");
 	    }
 	  else if(pid>0)
 	    {
 	      monitor_running=1;
 	      list_treasures(pid);
-	      wait_for_monitor(); 
+	      block_while_running(); 
 	    }
 	  else printf("Monitor is not open\n");
 	}
@@ -440,13 +427,13 @@ int main()
 	{
 	  if(monitor_terminating)
 	    {
-	      printf("[ERROR] Monitor is terminating\n");
+	      printf("Monitor is terminating, please wait\n");
 	    }
 	  else if(pid>0)
 	    {
 	      monitor_running=1;
 	      view_treasure(pid);
-	      wait_for_monitor(); // --//--
+	      block_while_running(); 
 	    }
 	  else printf("Monitor is not open\n");
 	}
@@ -458,7 +445,7 @@ int main()
 
       else if(strcmp(command,"exit")==0)
 	{
-	  exit_loop();
+	  exit_menu();
 	}
       else printf("Unknown command\n");
     }
