@@ -16,7 +16,9 @@
 #define LINK_PREFIX "logged_hunt-"
 #define MAX_PATH_LEN 256
 #define MAX_CLUE_LEN 100
+#define MIN_CLUE_LEN 5
 #define MAX_USERNAME_LEN 20
+#define MIN_USERNAME_LEN 3
 
 typedef struct{
   int treasureID;
@@ -24,9 +26,10 @@ typedef struct{
   float latitude;
   float longitude;
   char clue[MAX_CLUE_LEN];
-  int value; //price
+  int value;
 }Treasure;
 
+/*
 void create_hunt_directory(const char *hunt_id);
 char *get_treasure_filepath(const char *hunt_id,char *file_path);
 int open_treasure_file_for_write(const char *hunt_id);
@@ -41,6 +44,7 @@ void add_treasure(const char *hunt_id);
 void print_treasure(Treasure treasure);
 void list_treasures(const char* hunt_id);
 void view_treasure(const char *hunt_id, int treasure_id);
+*/
 
 void create_hunt_directory(const char *hunt_id)
 {
@@ -90,58 +94,275 @@ int open_treasure_file_for_read(const char *hunt_id)
   return fd;
 }
 
+void trim_whitespace(char *str)
+{
+  int start = 0;
+  int end = strlen(str) - 1;
 
-Treasure read_treasure_from_input()
+  while (isspace(str[start]))
+    start++; //ajunge pe primul caracter nenul
+
+  while (end >= start && isspace(str[end]))
+    end--; //ajunge pe ultimul element nenul
+
+  int i=0;
+  //muta tot la începutul stringului, inclusiv '\0'
+  while (start <= end)
+    {
+      str[i] = str[start];
+      i++;
+      start++;
+    }
+  str[i] = '\0';
+}
+
+int has_valid_length(const char* username,int MIN,int MAX)
+{
+    int len = strlen(username);
+    return (len >= MIN && len <= MAX);
+}
+
+int has_valid_characters(const char* username)
+{
+  int i=0;
+  while(username[i]!='\0')
+    {
+      char c = username[i];
+      if (!isalnum(c) && c != '_' && c != '.')
+	return 0;
+      i++;
+    }
+  return 1;
+}
+
+int has_valid_start_end(const char *username)
+{
+  int len=strlen(username);
+  if(username[0]=='.' || username[0]=='_' || username[len-1]=='.' || username[len-1]=='_')
+    return 0;
+  return 1;
+}
+
+int hasnt_only_digits(const char *username)
+{
+  int only_digits=1;
+  int i=0;
+  while(username[i]!='\0')
+    {
+      if(!isdigit(username[i]))
+	only_digits=0;
+      i++;
+    }
+  if(only_digits)
+    return 0;
+  return 1;
+}
+
+int is_valid_username(const char* username)
+{
+  return has_valid_length(username,MIN_USERNAME_LEN,MAX_USERNAME_LEN) && has_valid_characters(username)
+    && hasnt_only_digits(username) && has_valid_start_end(username);
+}
+
+void clear_stdin_buffer()
+{
+    int c;
+    while ((c = getchar()) != '\n' && c != EOF);
+}
+
+
+float read_latitude()
+{
+  char buffer[64];
+  float latitude;
+  int valid = 0;
+  while (!valid) {
+    printf("Introduce the latitude [-90,90]: ");
+    if (!fgets(buffer, sizeof(buffer), stdin))
+      {
+	printf("Input error. Please try again.\n");
+	continue;
+      }
+    // convertire din string in float
+    if (sscanf(buffer, "%f", &latitude) == 1)
+      {
+	if (latitude < -90.0 || latitude > 90.0)
+	  {
+	    printf("Invalid latitude. Please try again.\n");
+	  }
+	else
+	  {
+	    valid = 1;
+	  }
+      }
+    else
+      {
+	printf("Invalid input. Please introduce a numeric value.\n");
+      }
+  }
+  return latitude;
+}
+
+float read_longitude() {
+  char buffer[64];
+  float longitude;
+  int valid = 0;
+  while (!valid)
+    {
+      printf("Introduce the longitude [-180,180]: ");
+      if (!fgets(buffer, sizeof(buffer), stdin))
+	{
+	  printf("Input error. Please try again.\n");
+	  continue;
+        }
+      if (sscanf(buffer, "%f", &longitude) == 1)
+	{
+	  if (longitude < -180.0 || longitude > 180.0)
+	    {
+	      printf("Invalid longitude. Please try again.\n");
+            }
+	  else
+	    {
+	      valid = 1;
+            }
+        }
+      else
+	{
+	  printf("Invalid input. Please introduce a numeric value.\n");
+        }
+    }
+  return longitude;
+}
+
+int read_positive_id()
+{
+  char buffer[64];
+  int id;
+  int valid = 0;
+  while (!valid)
+    {
+      printf("Introduce the treasure ID (positive number): ");
+      if (!fgets(buffer, sizeof(buffer), stdin))
+	{
+	  printf("Input error. Please try again.\n");
+	  continue;
+        }
+      // convertire din string in int
+      if (sscanf(buffer, "%d", &id) == 1)
+	{
+	  if (id < 0) {
+	    printf("Invalid ID. Please try again.\n");
+	  }
+	  else
+	    {
+	      valid = 1;
+            }
+        }
+      else
+	{
+	  printf("Invalid input. Please introduce a positive integer.\n");
+        }
+    }
+  return id;
+}
+
+int read_positive_value()
+{
+  char buffer[64];
+  int value;
+  int valid = 0;
+  while (!valid)
+    {
+      printf("Introduce the value (positive number): ");
+      if (!fgets(buffer, sizeof(buffer), stdin))
+	{
+	  printf("Input error. Please try again.\n");
+	  continue;
+        }
+      if (sscanf(buffer, "%d", &value) == 1)
+	{
+	  if (value <= 0) {
+	    printf("Invalid value. Please try again.\n");
+	  }
+	  else
+	    {
+	      valid = 1;
+            }
+        }
+      else
+	{
+	  printf("Invalid input. Please introduce a positive integer.\n");
+        }
+    }
+  return value;
+}
+
+Treasure read_treasure_from_input() //cu basic input data validation
 {
   Treasure treasure;
   //citire date pentru comoara
-  
-  do{
-    printf("Introduce the treasure ID (positive number): ");
-    scanf("%d", &treasure.treasureID);
-    if(treasure.treasureID<0)
-      printf("Invalid ID. Please try again.\n");
-  }while(treasure.treasureID<0);
+
+  //treasure ID validation
+              //sa fie un int pozitiv
+  treasure.treasureID=read_positive_id(); 
  
-
+  //userName validation
+              //dimensiunea mai mare de 2 si mai mica de 19
+              //stergere spatiile albe de dinainte sau dupa
+              //nu e case-sensitive
+              //poate contine doar litere, cifre, _ si . dar nu le avea _ sau . la inceput sau sfarsit
+              //nu poate fi format doar din cifre
+  int too_long;
   do{
+    too_long=0;
     printf("Introduce the userName: ");
-    while(getchar()!='\n');
     fgets(treasure.userName,sizeof(treasure.userName),stdin);
-    treasure.userName[strcspn(treasure.userName,"\n")]='\0';
-    if(strlen(treasure.userName)==0 || strlen(treasure.userName)>MAX_USERNAME_LEN)
-      printf("Username cannot be empty or too long. Please try again.\n");
-  }while(strlen(treasure.userName)==0 || strlen(treasure.userName)>MAX_USERNAME_LEN);
+    if (treasure.userName[strlen(treasure.userName)-1] != '\n')
+      {
+	clear_stdin_buffer();
+	too_long=1;
+      }
+    treasure.userName[strcspn(treasure.userName, "\n")] = '\0';
+    trim_whitespace(treasure.userName);
+    for (int i = 0; treasure.userName[i]; i++) //transform totul in litere mici  // DE VERIFICAT FUNCTIONALITATE
+      treasure.userName[i] = tolower(treasure.userName[i]);
+
+    if (!has_valid_length(treasure.userName,MIN_USERNAME_LEN,MAX_USERNAME_LEN) || too_long==1)
+        printf("Username has to be longer than %d and shorter than %d characters.\n", MIN_USERNAME_LEN, MAX_USERNAME_LEN-1);
+    else if (!has_valid_characters(treasure.userName))
+        printf("Username can only contain letters, numbers, _ and .\n");
+    else if (!has_valid_start_end(treasure.userName))
+        printf("Username cannot end or start with a _ or .\n");
+    else if (!hasnt_only_digits(treasure.userName))
+        printf("Username cannot contain just numbers.\n");
+  }while(!is_valid_username(treasure.userName) || too_long==1);
+
+
+  //latitude and longitude validation
+                //trebuie sa fie in intervalul realistic al latitudinii si longitudinii
+  treasure.latitude=read_latitude();
+  treasure.longitude=read_longitude();
 
   do{
-    printf("Introduce the latitude [-90,90]: ");
-    scanf("%f",&treasure.latitude);
-    if(treasure.latitude<-90.0 || treasure.latitude>90.0)
-      printf("Invalid latitude. Please try again.\n");
-  }while(treasure.latitude<-90.0 || treasure.latitude>90.0);
-
-  do{
-    printf("Introduce the longitude [-180,180]: ");
-    scanf("%f",&treasure.longitude);
-    if(treasure.longitude<-180.0 || treasure.longitude>180.0)
-      printf("Invalid longitude. Please try again.\n");
-  }while(treasure.longitude<-180.0 || treasure.longitude>180.0);
-
-  do{
+    too_long=0;
     printf("Introduce the clue: ");
-    while(getchar()!='\n');
     fgets(treasure.clue,sizeof(treasure.clue),stdin);
-    treasure.clue[strcspn(treasure.clue,"\n")]='\0';
-    if(strlen(treasure.clue)==0 || strlen(treasure.clue)>MAX_CLUE_LEN)
-      printf("Clue cannot be empty or too long. Please try again.\n");
-  }while(strlen(treasure.clue)==0 || strlen(treasure.clue)>MAX_CLUE_LEN);
+    if (treasure.clue[strlen(treasure.clue)-1] != '\n')
+      {
+	clear_stdin_buffer();
+	too_long=1;
+      }
+    treasure.clue[strcspn(treasure.clue, "\n")] = '\0';
+    trim_whitespace(treasure.clue);
+    if(!has_valid_length(treasure.clue,MIN_CLUE_LEN,MAX_CLUE_LEN) || too_long==1)
+      {
+	printf("Clue has to be longer than %d and shorter than %d characters\n",MIN_CLUE_LEN,MAX_CLUE_LEN);
+      }
+  }while(!has_valid_length(treasure.clue,MIN_CLUE_LEN,MAX_CLUE_LEN) || too_long==1);
 
-  do{
-    printf("Introduce the value (positive number): ");
-    scanf("%d",&treasure.value);
-    if(treasure.value<=0)
-      printf("Invalid value. Please try again.\n");
-  }while(treasure.value<=0);
+  //value validation
+                  //sa fie un int pozitiv
+  treasure.value=read_positive_value();
 
   return treasure;
 }
