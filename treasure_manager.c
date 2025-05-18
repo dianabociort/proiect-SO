@@ -423,6 +423,13 @@ void create_symlink_for_log(const char* hunt_id)
   char symlink_name[MAX_PATH_LEN];
   snprintf(symlink_name,sizeof(symlink_name),"%s%s", LINK_PREFIX,hunt_id);
 
+  
+  struct stat st;
+  // verifica dacă symlink-ul exista deja
+  if (lstat(symlink_name, &st) == 0) {
+    return;
+  }
+  
   if(symlink(log_path,symlink_name)!=0)
     {
       perror("Failed to create symlink");
@@ -524,6 +531,7 @@ void list_hunts()
     }
   closedir(dir);
 }
+//
 
 void view_treasure(const char *hunt_id, int treasure_id)
 {
@@ -607,7 +615,7 @@ void log_treasure_removal(const char *hunt_id, int treasure_id)
   char *timestamp=ctime(&now);
   char log_entry[MAX_PATH_LEN];
   snprintf(log_entry,MAX_PATH_LEN,"[%.*s] Removed treasure with ID %d\n",(int)(strlen(timestamp)-1),timestamp,treasure_id);
-  write(log_fd,log_entry,MAX_PATH_LEN); 
+  write(log_fd,log_entry,strlen(log_entry)); 
   close_file(log_fd);
 }
 

@@ -11,16 +11,21 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <dirent.h>
 
 
 #define COMMAND_FILE_PATH "/home/debian/Desktop/SO an2/proiect/command.txt"
-#define FILE "treasure_manager"
+#define FILENAME "treasure_manager"
 #define COMMAND "./treasure_manager"
+#define SCORE_FILENAME "calculate_score"
+#define SCORE_COMMAND "./calculate_score"
 
 volatile sig_atomic_t monitor_running = 1;
 volatile sig_atomic_t monitor_terminating = 0;
 volatile sig_atomic_t terminate = 0;
 pid_t pid = -1;
+
+int pipefd[2]={-1,-1}; 
 
 
 int open_file_for_write(char *file)
@@ -95,8 +100,19 @@ void get_content_from_file(char *file, char *content) //in content vom pune cont
   close_file(fd);
 }
 
+void print_monitor_output()
+{
+  char string[4096];
+  ssize_t n;
+  while ((n=read(pipefd[0], string,sizeof(string)-1))>0)
+    {
+      string[n]='\0';
+      printf("%s", string);
+    }
+}
 
-void monitor_handler(int signum) //
+
+void monitor_handler(int signum) 
 {
   if (signum == SIGUSR1)
     {
@@ -126,17 +142,72 @@ void monitor_handler(int signum) //
 	}
       else if(exec_pid==0) //proces copil
 	{
+	  close(pipefd[0]);
+	  dup2(pipefd[1], 1);
+
 	  if(strcmp(commandd,"--list_hunts")==0 && strlen(huntID)==0 && strlen(treasureID)==0) 
 	    {
-	      execl(FILE,COMMAND,file_full_command,NULL); //  --list_hunts
+	      execl(FILENAME,COMMAND,file_full_command,NULL); //  --list_hunts
 	    }
 	  else if(strcmp(commandd,"--list")==0 && strlen(treasureID)==0) // --list huntID
 	    {
-	      execl(FILE,COMMAND,commandd,huntID,NULL);
+	      execl(FILENAME,COMMAND,commandd,huntID,NULL);
 	    }
 	  else if(strcmp(commandd,"--view")==0) // --view huntID treasureID
 	    {
-	      execl(FILE,COMMAND,commandd,huntID,treasureID,NULL);	      
+	      execl(FILENAME,COMMAND,commandd,huntID,treasureID,NULL);	      
+	    }
+	  else if(strcmp(commandd,"calculate_score")==0) 
+	    {
+	      DIR *dir=opendir("hunts"); //se deschide directorul hunts
+	      if(!dir)
+		{
+		  perror("opendir hunts");
+		  exit(-1);
+		}
+	      printf("\n");
+	      struct dirent *entry;
+	      
+	      while((entry=readdir(dir))!=NULL)
+		{
+		 
+		  if(entry->d_type == DT_DIR && (strcmp(entry->d_name, ".")) && (strcmp(entry->d_name,"..")))
+		    {
+		      printf("HUNT %s\n",entry->d_name);
+		      pid_t score_pid=fork(); //proces pentru a calcula scorul per hunt
+		      if(score_pid<0)
+			{
+			  perror("Fork error");
+			  exit(-1);
+			}
+		      else if(score_pid==0) //copilul executa score_calculator
+			{
+			  close(pipefd[0]);
+			  dup2(pipefd[1],1);
+			  execl(SCORE_FILENAME,SCORE_COMMAND,entry->d_name,NULL); //calculate_score huntID
+			  perror("execl score_calculator failed");
+			  exit(1);	  
+			}
+		      else //in parinte
+			{
+			  close(pipefd[1]);
+			  int status;
+			  waitpid(score_pid, &status,0);
+			  dprintf(pipefd[1], "-------------------------\n");
+			}
+		      printf("\n");
+		    }
+		  errno=0;
+		}
+	      
+	      if (errno != 0) //eroare la citire
+		{
+		  perror("readdir");
+		  exit(-1);
+		}
+	      
+	      closedir(dir);
+	      exit(0);
 	    }
 	  else
 	    {
@@ -147,6 +218,7 @@ void monitor_handler(int signum) //
 	  exit(1);
 	}
 
+      close(pipefd[1]);
       int status=0;
       if(waitpid(exec_pid, &status,0) ==-1) //asteptam sa se termine procesul copil (care a facut execl)
 	{
@@ -160,7 +232,6 @@ void monitor_handler(int signum) //
 	  exit(-1);
 	}
 
-      
       pid_t p_pid=getppid(); //returneaza pid-ul parintelui procesului curent
       if(kill(p_pid,SIGUSR2)<0) //trimite semnal catre parinte
 	{
@@ -168,10 +239,11 @@ void monitor_handler(int signum) //
 	  exit(-1);
 	    
 	}
+      
     }
   else if(signum==SIGTERM)
     {
-      sleep(5);
+      usleep(5000000);
       terminate=1;
     }  
 }
@@ -261,7 +333,6 @@ int monitor() //aici asteptam semnal dupa ce am pornit monitorul
 	{
 	  return 0;
 	}
-      
     }
   
 }
@@ -308,8 +379,14 @@ void start_monitor()
     }
   else //daca nu exista deja proces monitor
     {
+      if(pipe(pipefd)<0)
+	{
+	  perror("Pipe error");
+	  exit(-1);
+	}
+      
       printf("Monitor started successfully\n");
-
+      
       pid = fork(); //cream proces copil
       if (pid < 0)
 	{
@@ -317,11 +394,15 @@ void start_monitor()
 	  exit(-1);
 	}
 
-      if (pid == 0) //procesul parinte ramane in meniu, copilul merge in monitor_loop()
+      if (pid == 0) //procesul parinte ramane in meniu, copilul merge in monitor()
 	{
+	  close(pipefd[0]); //monitor scrie in pipefd[1]
 	  monitor();
+	  close(pipefd[1]); 
 	  exit(0);
 	}
+      close(pipefd[1]); //meniul citeste din pipefd[0]
+      
     }
 
 }
@@ -337,6 +418,7 @@ void stop_monitor()
       printf("Monitor terminating in progress...\n"); //se incepe procesul de oprire a monitorului
       kill(pid,SIGTERM); //trimit semnalul de terminare spre procesul monitor (monitor_loop)
       monitor_terminating=1;
+      close(pipefd[0]);
     }
   else printf("Monitor is not open\n");
 }
@@ -359,6 +441,17 @@ void exit_menu()
     }
 }
 
+void calculate_score(pid_t pid)
+{
+  write_command(COMMAND_FILE_PATH,"calculate_score");
+
+  if(kill(pid,SIGUSR1)<0)
+    {
+      perror("Send SIGUSR1 to monitor error");
+      exit(-1);
+    }
+}
+
 
 int main()
 {
@@ -367,7 +460,7 @@ int main()
 
   while(1)
     {
-      printf("\nCommand options: \n start_monitor\n list_hunts\n list_treasures\n view_treasure\n stop_monitor\n exit\n");
+      printf("\nCommand options: \n start_monitor\n list_hunts\n list_treasures\n view_treasure\n calculate_score\n stop_monitor\n exit\n");
       printf("Type option:\n");
       printf(">> ");
 
@@ -404,6 +497,7 @@ int main()
 	      monitor_running=1;
 	      list_hunts(pid);
 	      block_while_running(); //asteapta finalul comenzii actuale pana sa putem introduce urmatoarea comanda
+	      print_monitor_output();
 	    }
 	  else printf("Monitor is not open\n");
 	}
@@ -418,7 +512,8 @@ int main()
 	    {
 	      monitor_running=1;
 	      list_treasures(pid);
-	      block_while_running(); 
+	      block_while_running();
+	      print_monitor_output();
 	    }
 	  else printf("Monitor is not open\n");
 	}
@@ -433,7 +528,8 @@ int main()
 	    {
 	      monitor_running=1;
 	      view_treasure(pid);
-	      block_while_running(); 
+	      block_while_running();
+	      print_monitor_output();
 	    }
 	  else printf("Monitor is not open\n");
 	}
@@ -446,6 +542,21 @@ int main()
       else if(strcmp(command,"exit")==0)
 	{
 	  exit_menu();
+	}
+      else if(strcmp(command,"calculate_score")==0)
+	{
+	  if(monitor_terminating)
+	    {
+	      printf("Monitor is terminating, please wait\n");
+	    }
+	  else if(pid>0)
+	    {
+	      monitor_running=1;
+	      calculate_score(pid);
+	      block_while_running();
+	      print_monitor_output();
+	    }
+	  else printf("Monitor is not open\n");
 	}
       else printf("Unknown command\n");
     }

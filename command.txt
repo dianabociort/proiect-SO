@@ -1,1 +1,1 @@
---view game1 123
+calculate_score
